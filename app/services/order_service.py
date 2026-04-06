@@ -28,16 +28,21 @@ async def create_order_idempotent(pool: asyncpg.Pool, order_data: OrderCreate) -
     final_idempotency_key = order_data.idempotency_key if order_data.idempotency_key else request_hash
 
     # 3. DB interactions with robust exception handling
+    from app.core.utils import get_ist_now
+    
     try:
         async with pool.acquire() as conn:
             CREATE_ORDER_QUERY = """
-                INSERT INTO orders (idempotency_key, request_hash, amount)
-                VALUES ($1, $2, $3)
+                INSERT INTO orders (idempotency_key, request_hash, amount, created_at)
+                VALUES ($1, $2, $3, $4)
                 ON CONFLICT (idempotency_key) 
                 DO UPDATE SET idempotency_key = orders.idempotency_key
-                RETURNING order_id, amount, status, idempotency_key, (xmax = 0) AS inserted;
+                RETURNING order_id, amount, status, idempotency_key, created_at, (xmax = 0) AS inserted;
             """
-            row = await conn.fetchrow(CREATE_ORDER_QUERY, final_idempotency_key, request_hash, order_data.amount)
+            now_ist = get_ist_now()
+
+            # Pass our IST localized time directly into Postgres as parameter 4
+            row = await conn.fetchrow(CREATE_ORDER_QUERY, final_idempotency_key, request_hash, order_data.amount, now_ist)
             
     except asyncpg.exceptions.PostgresError as db_error:
         logging.error(f"Database insertion error: {db_error}")
@@ -61,5 +66,6 @@ async def create_order_idempotent(pool: asyncpg.Pool, order_data: OrderCreate) -
         "amount": row["amount"],
         "status": row["status"],
         "idempotency_key": row["idempotency_key"],
+        "created_at": row["created_at"],
         "is_existing": not row["inserted"]
     }

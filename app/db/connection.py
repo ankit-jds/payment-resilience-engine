@@ -10,7 +10,8 @@ async def setup_db_pool() -> asyncpg.Pool:
 
     pool = await asyncpg.create_pool(
         dsn=settings.database_url,
-        ssl=ctx
+        ssl=ctx,
+        statement_cache_size=0 # Required for Supabase pgBouncer (port 6543)
     )
     if pool is None:
         raise RuntimeError("Failed to initialize database pool")
