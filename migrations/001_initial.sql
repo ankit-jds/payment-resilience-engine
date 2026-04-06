@@ -19,7 +19,7 @@ CREATE TABLE payments (
 
 CREATE TABLE refunds (
     refund_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    payment_id  UUID NOT NULL REFERENCES payments(payment_id),
+    payment_id  UUID UNIQUE NOT NULL REFERENCES payments(payment_id),
     provider_refund_id VARCHAR(255) UNIQUE,
     status      VARCHAR(50) NOT NULL DEFAULT 'PENDING_CONFIRMATION',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
