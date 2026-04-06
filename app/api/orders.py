@@ -1,5 +1,4 @@
-from fastapi import APIRouter, Header, Request, status, Response
-from typing import Optional
+from fastapi import APIRouter, Request, status, Response
 from app.schemas.order import OrderCreate, OrderResponse
 from app.services.order_service import create_order_idempotent
 
