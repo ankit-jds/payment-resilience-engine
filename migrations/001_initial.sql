@@ -5,7 +5,7 @@ CREATE TABLE orders (
     provider_order_id VARCHAR(255),
     amount          NUMERIC(10, 2) NOT NULL,
     status          VARCHAR(50) NOT NULL DEFAULT 'CREATED',
-    created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE payments (
@@ -14,7 +14,7 @@ CREATE TABLE payments (
     provider_payment_id VARCHAR(255) UNIQUE,
     status      VARCHAR(50) NOT NULL DEFAULT 'PENDING',
     is_canonical BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE refunds (
@@ -22,5 +22,5 @@ CREATE TABLE refunds (
     payment_id  UUID NOT NULL REFERENCES payments(payment_id),
     provider_refund_id VARCHAR(255) UNIQUE,
     status      VARCHAR(50) NOT NULL DEFAULT 'PENDING_CONFIRMATION',
-    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
