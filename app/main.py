@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from app.db.connection import setup_db_pool, teardown_db_pool
+from app.api import orders
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -9,6 +10,8 @@ async def lifespan(app: FastAPI):
     await teardown_db_pool(app.state.pool)
 
 app = FastAPI(lifespan=lifespan)
+
+app.include_router(orders.router)
 
 @app.get("/health")
 async def health_check(request: Request):
