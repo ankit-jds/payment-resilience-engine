@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from app.db.connection import setup_db_pool, teardown_db_pool
-from app.api import orders, payments
+from app.api import orders, payments, webhooks
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -13,6 +13,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.include_router(orders.router)
 app.include_router(payments.router)
+app.include_router(webhooks.router)
 
 @app.get("/health")
 async def health_check(request: Request):
