@@ -21,6 +21,7 @@ async def generate_payment_intent(pool: asyncpg.Pool, payment_data: PaymentCreat
         RETURNING payment_id, order_id, status, is_canonical, created_at
     """
 
+    from app.integrations.payment_provider import process_payment
     try:
         async with pool.acquire() as conn:
             # Block 1. Guarantee valid order dependencies
@@ -29,7 +30,23 @@ async def generate_payment_intent(pool: asyncpg.Pool, payment_data: PaymentCreat
                 raise HTTPException(status_code=404, detail="Order UUID constraint violation: Parent Order not found in registry.")
 
             # Block 2. Exclusively generate blank retry intent layer
-            row = await conn.fetchrow(CREATE_PAYMENT_QUERY, payment_data.order_id, now_ist)
+            db_row = await conn.fetchrow(CREATE_PAYMENT_QUERY, payment_data.order_id, now_ist)
+            row = dict(db_row) if db_row else None
+            
+            # Block 3. Decoupled Network Simulation triggering the physical gateway execution
+            if row:
+                gateway_res = await process_payment(str(row["payment_id"]))
+                
+                # We strictly only update the provider_id. 
+                # We deliberately leave status='PENDING' to force the Webhook Service to execute the real state-machine lock!
+                if gateway_res.get("provider_payment_id"):
+                    await conn.execute(
+                        "UPDATE payments SET provider_payment_id = $1 WHERE payment_id = $2",
+                        gateway_res["provider_payment_id"], row["payment_id"]
+                    )
+                    row["provider_payment_id"] = gateway_res["provider_payment_id"]
+                else:
+                    logger.warning(f"Simulated Network 504. External provider_payment_id entirely dropped for {row['payment_id']}")
 
     except HTTPException as http_exc:
         logger.warning(f"Payment generation explicitly halted constraints: {http_exc.detail}")
@@ -54,6 +71,7 @@ async def generate_payment_intent(pool: asyncpg.Pool, payment_data: PaymentCreat
     return {
         "payment_id": str(row["payment_id"]),
         "order_id": str(row["order_id"]),
+        "provider_payment_id": row.get("provider_payment_id"),
         "status": row["status"],
         "is_canonical": row["is_canonical"],
         "created_at": row["created_at"]
