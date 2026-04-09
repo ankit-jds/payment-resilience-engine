@@ -11,6 +11,7 @@ class PaymentResponse(BaseModel):
     payment_id: UUID
     order_id: UUID
     status: str
+    provider_payment_id: Optional[str] = None
     is_canonical: bool
     created_at: datetime
 

@@ -4,14 +4,42 @@ from fastapi import HTTPException
 from typing import Dict, Any
 from app.schemas.payment import PaymentCreate
 from app.core.utils import get_ist_now
+import asyncio
+from app.integrations.payment_provider import process_payment
+from app.services.webhook_service import process_webhook_payload
+from app.schemas.webhook import WebhookPayload
 
 logger = logging.getLogger(__name__)
 
+async def _bg_simulate_frontend_and_webhook(pool: asyncpg.Pool, payment_id: str):
+    """
+    Offline simulator exactly mapping the React Client SDK latency combined with the 
+    subsequent Gateway Webhook generation. Operates entirely independently of the API payload lock natively.
+    """
+    try:
+        # 1. Simulate the React App pinging SDK directly entirely physically decoupled
+        gateway_res = await process_payment(payment_id)
+        
+        # 2. Add the tracking metadata natively decoupled
+        if gateway_res.get("provider_payment_id"):
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE payments SET provider_payment_id = $1 WHERE payment_id = $2",
+                    gateway_res["provider_payment_id"], payment_id
+                )
+                
+        # 3. Gateway physically fires the Webhook Payload asynchronously cleanly
+        test_payload = WebhookPayload(payment_id=payment_id, status=gateway_res["status"])
+        await process_webhook_payload(pool, test_payload)
+        
+    except Exception as e:
+        logger.error(f"Background Gateway Simulation mechanically crashed natively: {e}")
+
+
 async def generate_payment_intent(pool: asyncpg.Pool, payment_data: PaymentCreate) -> dict:
     """
-    Generates a new PENDING payment.
-    We explicitly allow unlimited tracking intents to be drawn, even if a Canonical token exists.
-    A background Webhook later handles auto-refunding double-charged overlaps.
+    Generates a new PENDING payment natively.
+    Returns the PENDING intent ID completely decoupled instantly off the HTTP socket natively.
     """
     now_ist = get_ist_now()
 
@@ -21,7 +49,6 @@ async def generate_payment_intent(pool: asyncpg.Pool, payment_data: PaymentCreat
         RETURNING payment_id, order_id, status, is_canonical, created_at
     """
 
-    from app.integrations.payment_provider import process_payment
     try:
         async with pool.acquire() as conn:
             # Block 1. Guarantee valid order dependencies
@@ -33,20 +60,9 @@ async def generate_payment_intent(pool: asyncpg.Pool, payment_data: PaymentCreat
             db_row = await conn.fetchrow(CREATE_PAYMENT_QUERY, payment_data.order_id, now_ist)
             row = dict(db_row) if db_row else None
             
-            # Block 3. Decoupled Network Simulation triggering the physical gateway execution
+            # Block 3. Instantly Drop execution loop safely completely decoupled from HTTP Wait lock!
             if row:
-                gateway_res = await process_payment(str(row["payment_id"]))
-                
-                # We strictly only update the provider_id. 
-                # We deliberately leave status='PENDING' to force the Webhook Service to execute the real state-machine lock!
-                if gateway_res.get("provider_payment_id"):
-                    await conn.execute(
-                        "UPDATE payments SET provider_payment_id = $1 WHERE payment_id = $2",
-                        gateway_res["provider_payment_id"], row["payment_id"]
-                    )
-                    row["provider_payment_id"] = gateway_res["provider_payment_id"]
-                else:
-                    logger.warning(f"Simulated Network 504. External provider_payment_id entirely dropped for {row['payment_id']}")
+                asyncio.create_task(_bg_simulate_frontend_and_webhook(pool, str(row["payment_id"])))
 
     except HTTPException as http_exc:
         logger.warning(f"Payment generation explicitly halted constraints: {http_exc.detail}")
