@@ -57,26 +57,21 @@ Database-level constraints guarantee data integrity even if the Python applicati
 4. **Worker crashes**: Webhook logic explicitly decouples the physical receipt of duplicate payments from the network-bound processing of external refunds via the Daemon worker.
 
 
-### Background Workers (Safety Nets)
+### Background Workers (Safety Nets) & Infrastructure
 - **Refund Daemon**: A continuous polling worker safely processing Gateway reversals using strictly atomic states avoiding parallel queue overlap natively.
 - **Reconciliation Cron**: A generic truth-checking loop querying the simulated payment provider directly to natively force-fulfill payments blocked by permanently dropped physical webhooks.
+- **Container Architecture**: The background workers are physically deployed via `docker-compose` into isolated Crash Domains natively avoiding API downtime if background loops OOM gracefully.
 
 ### Testing Strategy
-- A global `pytest` fixture completely intercepts `asyncpg` to run the full application transaction suite completely offline utilizing `anyio`.
-- Explicitly mocks and traps database network lockups, constraint violations, and massive structural connectivity loss mapping 100% path coverage safely.
+- **Offline Sandbox**: Using `pytest` and `anyio` to run fast, offline tests. A global fixture mocks `asyncpg` (the database connection) so we can easily test edge cases like network failures and database errors without needing a live database.
+- **Live Integration**: End-to-end tests that connect directly to a live database to verify real-world scenarios (like idempotency collisions and duplicate webhooks).
 
 ## Remaining Work
 
-As per the technical specification, the core engine, state machines, and resilience workers are entirely natively completed.
+As per the technical specification, the core engine, state machines, containerizations, and exhaustive resilience integrations are entirely natively implemented.
 
-### 1. Database Currency Precision (Paise/Cents)
-Currently, financial models use `DECIMAL` mapping. For massive high-frequency environments, ledger schemas must be structurally migrated to `BIGINT` (paise/cents) to entirely mathematically eliminate float approximation vulnerabilities structurally.
-
-### 2. Live Integration Tests
-Expanding the offline `pytest` suite to include dynamic physical Database-Container spin-ups explicitly proving mathematical state convergence under targeted hardware crash scenarios natively.
-
-### 3. Redis Queue Infrastructure
+### 1. Redis Queue Infrastructure
 While the background loops currently operate via robust PostgreSQL polling safely, shifting execution into an explicit Redis-backed worker structure (e.g. Celery / ARQ) is definitively scoped to scale massive horizontal throughput natively.
 
-### 4. Cryptographic HMAC Implementation
+### 2. Cryptographic HMAC Implementation
 For physical production deployments, the generic webhook routing engine must integrate an explicit `HMAC-SHA256` middleware layer verifying gateway signature headers explicitly blocking forged JSON payload insertions.
