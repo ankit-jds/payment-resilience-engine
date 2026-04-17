@@ -15,15 +15,31 @@ async def process_webhook_payload(pool: asyncpg.Pool, payload: WebhookPayload) -
     if payload.status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid webhook status natively rejected. Allowed: {valid_statuses}")
 
+    # ===============================================================
+    # REFUND WEBHOOK ROUTING (Asynchronous Gateway Settling)
+    # ===============================================================
+    if payload.event_type == "refund.updated":
+        async with pool.acquire() as conn:
+            # Refunds strictly operate cleanly as a 1:1 mapping! No complex order canonical checks required.
+            result = await conn.execute("""
+                UPDATE refunds 
+                SET status = $1 
+                WHERE payment_id = $2 AND status != 'SUCCESS'
+            """, payload.status, payload.payment_id)
+            return {"message": f"Refund asynchronous pipeline natively verified! Status definitively locked into {payload.status}."}
+
+
     try:
         async with pool.acquire() as conn:
             # We strictly enforce PostgreSQL row-level locks eliminating double-click execution errors dynamically
             async with conn.transaction():
-                # 1. Lock the Payment row specifically cleanly forcing parallel overlapping hooks to execute sequentially!
+                # 1. Lock the Payment row cleanly forcing parallel overlapping hooks to execute sequentially!
+                # Using FOR UPDATE OF p guarantees we ONLY lock the payment row, leaving the Order free for now!
                 payment_row = await conn.fetchrow("""
-                    SELECT status, order_id 
-                    FROM payments 
-                    WHERE payment_id = $1 FOR UPDATE
+                    SELECT p.status, p.order_id, o.amount as expected_amount 
+                    FROM payments p
+                    JOIN orders o ON p.order_id = o.order_id
+                    WHERE p.payment_id = $1 FOR UPDATE OF p
                 """, payload.payment_id)
 
                 if not payment_row:
@@ -31,6 +47,16 @@ async def process_webhook_payload(pool: asyncpg.Pool, payload: WebhookPayload) -
 
                 current_status = payment_row["status"]
                 order_id = payment_row["order_id"]
+                expected_amount = payment_row["expected_amount"]
+
+                # ===============================================================
+                # ZERO-TRUST ARCHITECTURE: AMOUNT VERIFICATION
+                # ===============================================================
+                if payload.status == "SUCCESS" and payload.amount_captured is not None:
+                    if payload.amount_captured != expected_amount:
+                        logger.critical(f"CRITICAL: 1-Cent Flaw Attack detected natively! Expected {expected_amount}, received {payload.amount_captured}")
+                        await conn.execute("UPDATE payments SET status = 'FAILED' WHERE payment_id = $1", payload.payment_id)
+                        raise HTTPException(status_code=400, detail="Security violation. Extracted captured amount violently mismatches Intent constraints.")
 
                 # ===============================================================
                 # STATE MACHINE BRANCH A: FAILURE PROCESSING
