@@ -46,9 +46,9 @@ Database-level constraints guarantee data integrity even if the Python applicati
 - `refunds`: `payment_id` is UNIQUE, guaranteeing refund pipelines are strictly idempotent.
 
 ### Implemented APIs
-- `POST /orders`: Atomic, idempotent order creation.
-- `POST /payments`: Generates pending payment intents.
-- `POST /webhook`: The state machine. Uses `SELECT ... FOR UPDATE` row-locks to sequentially process incoming webhook events safely.
+- `POST /orders`: **Generates Intents.** Atomic, idempotent generation of the parent checkout (Maps to Stripe `PaymentIntents` or Razorpay `Orders`).
+- `POST /payments`: **Executes Payments (The Simulator).** Acts as the "World Simulator", mechanically replicating the Frontend SDK capturing the card, the Gateway processing the funds, and dynamically dispatching network-lossy Webhooks in the background.
+- `POST /webhook`: **The State Machine.** Uses `SELECT ... FOR UPDATE` row-locks to sequentially process incoming webhook events safely.
 
 ### Eliminated Edge Cases
 1. **Duplicate requests (Double clicks)**: Blocked cleanly by `INSERT ... ON CONFLICT (idempotency_key)`.
