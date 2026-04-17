@@ -5,7 +5,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from app.main import app
 
-def generate_payment_row_mock(status, order_id, expected_amount=50.00):
+def generate_payment_row_mock(status, order_id, expected_amount=5000):
     """Helper generator to construct an asyncpg row mimicking the locked Payment select payload structure"""
     return {
         "status": status,
@@ -138,15 +138,15 @@ def test_webhook_zero_trust_amount_mismatch(mock_db_connection):
     """Test 1-Cent Flaw rejection natively blocking mathematically mismatched captured amounts structurally."""
     payment_uuid = uuid.uuid4()
     
-    # Mock row explicitly mapping an expected amount of $50.00
-    mock_db_connection.fetchrow.return_value = generate_payment_row_mock("PENDING", str(uuid.uuid4()), expected_amount=50.00)
+    # Mock row explicitly mapping an expected amount of 5000 (cents/paise)
+    mock_db_connection.fetchrow.return_value = generate_payment_row_mock("PENDING", str(uuid.uuid4()), expected_amount=5000)
     
     with TestClient(app) as client:
-        # Action: Send a hacker payload trying to capture $1.00 instead of $50.00
+        # Action: Send a hacker payload trying to capture 100 instead of 5000
         response = client.post("/webhook/", json={
             "payment_id": str(payment_uuid), 
             "status": "SUCCESS",
-            "amount_captured": 1.00  # Hacker modified amount!
+            "amount_captured": 100  # Hacker modified amount!
         })
         assert response.status_code == 400
         assert "Security violation. Extracted captured amount violently mismatches" in response.json()["detail"]

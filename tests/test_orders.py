@@ -1,7 +1,7 @@
 import uuid
 import pytest
 import asyncpg
-from decimal import Decimal
+
 from datetime import datetime
 from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
@@ -11,7 +11,7 @@ def generate_db_mock(order_uuid, amount, key, inserted):
     """Helper generator to construct a static mocked asyncpg row payload mimicking genuine PostgreSQL results"""
     return {
         "order_id": order_uuid,
-        "amount": Decimal(str(amount)),
+        "amount": amount,
         "status": "CREATED",
         "idempotency_key": key,
         "provider_order_id": f"prov_mock_{str(order_uuid)[:8]}",
@@ -67,12 +67,12 @@ def test_create_order_no_idempotency_key_provided(mock_db_connection):
     shared_uuid = uuid.uuid4()
     
     mock_db_connection.fetchrow.side_effect = [
-        generate_db_mock(shared_uuid, 14.55, "hash-fallback-key", True),  
-        generate_db_mock(shared_uuid, 14.55, "hash-fallback-key", False)  
+        generate_db_mock(shared_uuid, 1455, "hash-fallback-key", True),  
+        generate_db_mock(shared_uuid, 1455, "hash-fallback-key", False)  
     ]
     
     with TestClient(app) as client:
-        test_amount = 14.55 
+        test_amount = 1455 
         
         # Action 1: Create
         response = client.post("/orders/", json={"amount": test_amount})
@@ -95,12 +95,12 @@ def test_create_order_with_explicit_idempotency_key(mock_db_connection):
     explicit_key = f"test-key-{uuid.uuid4()}"
     
     mock_db_connection.fetchrow.side_effect = [
-        generate_db_mock(shared_uuid, 25.00, explicit_key, True),
-        generate_db_mock(shared_uuid, 25.00, explicit_key, False)
+        generate_db_mock(shared_uuid, 2500, explicit_key, True),
+        generate_db_mock(shared_uuid, 2500, explicit_key, False)
     ]
     
     with TestClient(app) as client:
-        payload = {"amount": 25.00, "idempotency_key": explicit_key}
+        payload = {"amount": 2500, "idempotency_key": explicit_key}
         
         # Action 1: Create
         response = client.post("/orders/", json=payload)
@@ -125,7 +125,7 @@ def test_create_order_invalid_amount_fails_validation():
     """Test Pydantic cleanly rejects negative math returning HTTP 422 before targeting DB."""
     with TestClient(app) as client:
         # Action 1: Negative amount validation
-        response = client.post("/orders/", json={"amount": -10.00})
+        response = client.post("/orders/", json={"amount": -1000})
         assert response.status_code == 422
         
         # Action 2: Zero amount validation
@@ -138,7 +138,7 @@ def test_hash_generation_failure_no_key_yields_500():
         with patch("app.services.order_service.hashlib.sha256", side_effect=Exception("Simulated hash crash")):
             
             # Action 1: Create triggering internal system crash
-            response = client.post("/orders/", json={"amount": 50.00})
+            response = client.post("/orders/", json={"amount": 5000})
             assert response.status_code == 500
             assert "Idempotency key generation failed" in response.json()["detail"]
 
@@ -147,13 +147,13 @@ def test_hash_generation_failure_survives_with_explicit_key(mock_db_connection):
     explicit_key = f"survival-key-{uuid.uuid4()}"
     shared_uuid = uuid.uuid4()
     
-    mock_db_connection.fetchrow.return_value = generate_db_mock(shared_uuid, 50.00, explicit_key, True)
+    mock_db_connection.fetchrow.return_value = generate_db_mock(shared_uuid, 5000, explicit_key, True)
     
     with TestClient(app) as client:
         with patch("app.services.order_service.hashlib.sha256", side_effect=Exception("Simulated hash crash")):
             
             # Action 1: Create surviving internal system crash
-            response = client.post("/orders/", json={"amount": 50.00, "idempotency_key": explicit_key})
+            response = client.post("/orders/", json={"amount": 5000, "idempotency_key": explicit_key})
             assert response.status_code == 201
 
 def test_db_postgres_rejection_yields_500(mock_db_connection):
@@ -162,7 +162,7 @@ def test_db_postgres_rejection_yields_500(mock_db_connection):
     
     with TestClient(app) as client:
         # Action 1: Create triggering Postgres engine rejection
-        response = client.post("/orders/", json={"amount": 10.00})
+        response = client.post("/orders/", json={"amount": 1000})
         assert response.status_code == 500
 
 def test_db_unexpected_system_error_yields_500(mock_db_connection):
@@ -171,7 +171,7 @@ def test_db_unexpected_system_error_yields_500(mock_db_connection):
     
     with TestClient(app) as client:
         # Action 1: Create triggering catastrophic Python hardware limit panic
-        response = client.post("/orders/", json={"amount": 10.00})
+        response = client.post("/orders/", json={"amount": 1000})
         assert response.status_code == 500
 
 def test_db_returns_no_row_data_yields_500(mock_db_connection):
@@ -180,5 +180,5 @@ def test_db_returns_no_row_data_yields_500(mock_db_connection):
     
     with TestClient(app) as client:
         # Action 1: Create triggering silent Postgres return logic corruption
-        response = client.post("/orders/", json={"amount": 10.00})
+        response = client.post("/orders/", json={"amount": 1000})
         assert response.status_code == 500
