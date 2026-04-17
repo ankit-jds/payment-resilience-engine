@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # ========================================================
+  # THE FRONT-FACING API NODE
+  # ========================================================
+  api:
+    build: .
+    container_name: resilience_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: always
+
+  # ========================================================
+  # REFUND DAEMON (Asynchronous Queue Processing)
+  # ========================================================
+  refund_worker:
+    build: .
+    container_name: resilience_refund_worker
+    command: python -m app.workers.refund_worker
+    env_file:
+      - .env
+    restart: always
+    
+  # ========================================================
+  # RECONCILIATION SWEEP (The Safety Net)
+  # ========================================================
+  reconciliation_worker:
+    build: .
+    container_name: resilience_reconciliation_worker
+    command: python -m app.workers.reconciliation_worker
+    env_file:
+      - .env
+    restart: always
