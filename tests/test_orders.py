@@ -14,9 +14,17 @@ def generate_db_mock(order_uuid, amount, key, inserted):
         "amount": Decimal(str(amount)),
         "status": "CREATED",
         "idempotency_key": key,
+        "provider_order_id": f"prov_mock_{str(order_uuid)[:8]}",
         "created_at": datetime.utcnow(),
         "inserted": inserted
     }
+
+@pytest.fixture(autouse=True)
+def mock_gateway_provider():
+    """Forcefully intercept the external gateway API to prevent the random 5% timeout flakiness."""
+    with patch("app.integrations.payment_provider.create_order", new_callable=AsyncMock) as mock_create:
+        mock_create.return_value = {"status": "SUCCESS", "provider_order_id": "prov_mock_id_123"}
+        yield mock_create
 
 # ===============================================
 # CRITICAL BEST PRACTICES: GLOBAL FIXTURE
@@ -41,6 +49,10 @@ def mock_db_connection():
         mock_pool.acquire.return_value = mock_acquire_context
         # 2. `async with` triggers __aenter__, yielding the isolated socket mock
         mock_acquire_context.__aenter__.return_value = mock_conn
+        
+        # 3. Transaction Tree explicitly mocked cleanly
+        mock_transaction_context = AsyncMock()
+        mock_conn.transaction = MagicMock(return_value=mock_transaction_context)
         
         mock_create_pool.return_value = mock_pool
         
