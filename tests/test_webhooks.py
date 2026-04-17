@@ -5,11 +5,12 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from app.main import app
 
-def generate_payment_row_mock(status, order_id):
+def generate_payment_row_mock(status, order_id, expected_amount=50.00):
     """Helper generator to construct an asyncpg row mimicking the locked Payment select payload structure"""
     return {
         "status": status,
-        "order_id": order_id
+        "order_id": order_id,
+        "expected_amount": expected_amount
     }
 
 # ===============================================
@@ -132,6 +133,45 @@ def test_webhook_failed_no_state_regression(mock_db_connection):
         
         # Confirm absolutely no Database execute commands were destructively allowed to run!
         assert mock_db_connection.execute.call_count == 0
+
+def test_webhook_zero_trust_amount_mismatch(mock_db_connection):
+    """Test 1-Cent Flaw rejection natively blocking mathematically mismatched captured amounts structurally."""
+    payment_uuid = uuid.uuid4()
+    
+    # Mock row explicitly mapping an expected amount of $50.00
+    mock_db_connection.fetchrow.return_value = generate_payment_row_mock("PENDING", str(uuid.uuid4()), expected_amount=50.00)
+    
+    with TestClient(app) as client:
+        # Action: Send a hacker payload trying to capture $1.00 instead of $50.00
+        response = client.post("/webhook/", json={
+            "payment_id": str(payment_uuid), 
+            "status": "SUCCESS",
+            "amount_captured": 1.00  # Hacker modified amount!
+        })
+        assert response.status_code == 400
+        assert "Security violation. Extracted captured amount violently mismatches" in response.json()["detail"]
+        
+        # Verify the Hacker payment was forcefully safely dropped to FAILED to prevent shipping!
+        mock_db_connection.execute.assert_called_once()
+        assert "status = 'FAILED'" in mock_db_connection.execute.call_args[0][0]
+
+def test_webhook_refund_routing_pipeline(mock_db_connection):
+    """Test explicit generic routing dynamically matching refund hooks explicitly natively."""
+    payment_uuid = uuid.uuid4()
+    
+    with TestClient(app) as client:
+        # Action: Send a refund webhook
+        response = client.post("/webhook/", json={
+            "event_type": "refund.updated",
+            "payment_id": str(payment_uuid), 
+            "status": "SUCCESS"
+        })
+        assert response.status_code == 200
+        assert "Refund asynchronous pipeline natively verified!" in response.json()["message"]
+        
+        # Verify it exclusively natively executed the refund table block mapped efficiently!
+        mock_db_connection.execute.assert_called_once()
+        assert "UPDATE refunds" in mock_db_connection.execute.call_args[0][0]
 
 # ===============================================
 # FAILURE & EDGE CASES (400 / 404 / 422 / 500)
