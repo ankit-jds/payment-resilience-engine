@@ -87,3 +87,43 @@ async def process_payment(
         return {"status": outcome, "provider_payment_id": None}
 
     return {"status": outcome, "provider_payment_id": provider_payment_id}
+
+async def check_payment_status(payment_id: str) -> dict:
+    """
+    Simulates physically checking the exact source-of-truth status of a Payment Intent.
+    In real production: Stripe.PaymentIntent.retrieve(id)
+    """
+    artificial_delay = random.uniform(0.1, 0.3)
+    await asyncio.sleep(artificial_delay)
+    
+    # 90% of the time, the checkout was simply abandoned by the user.
+    # 10% of the time, they DID pay, but the internet dropped the Webhook!
+    outcome = random.choices(["FAILED", "SUCCESS"], weights=[0.90, 0.10], k=1)[0]
+    
+    provider_payment_id = f"prov_pay_{payment_id.replace('-', '')[:16]}"
+    
+    if outcome == "SUCCESS":
+        logger.warning(f"[RECONCILIATION API] Discovered hidden SUCCESS for {payment_id}! The webhook was completely lost!")
+    else:
+        logger.info(f"[RECONCILIATION API] Confirmed checkout was abandoned for {payment_id}.")
+        
+    return {"status": outcome, "provider_payment_id": provider_payment_id}
+
+async def check_refund_status(payment_id: str) -> dict:
+    """
+    Simulates checking the long-tail asynchronous status of a stuck Refund.
+    Refunds take 5-10 business days to settle across Banking networks natively.
+    """
+    artificial_delay = random.uniform(0.1, 0.3)
+    await asyncio.sleep(artificial_delay)
+    
+    # Refunds are strictly far more likely to eventually mathematically succeed.
+    outcome = random.choices(["FAILED", "SUCCESS"], weights=[0.10, 0.90], k=1)[0]
+    provider_refund_id = f"prov_ref_{payment_id.replace('-', '')[:16]}"
+    
+    if outcome == "SUCCESS":
+        logger.warning(f"[RECONCILIATION API] Discovered hidden REFUND SETTLEMENT for {payment_id}! The network webhook dropped!")
+    else:
+        logger.error(f"[RECONCILIATION API] Confirmed Refund definitively FAILED structurally for {payment_id}. Manual intervention strictly required.")
+        
+    return {"status": outcome, "provider_refund_id": provider_refund_id}
