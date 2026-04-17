@@ -28,9 +28,21 @@ async def _bg_simulate_frontend_and_webhook(pool: asyncpg.Pool, payment_id: str)
                     gateway_res["provider_payment_id"], payment_id
                 )
                 
-        # 3. Gateway physically fires the Webhook Payload asynchronously cleanly
-        test_payload = WebhookPayload(payment_id=payment_id, status=gateway_res["status"])
-        await process_webhook_payload(pool, test_payload)
+        # 3. Simulate Gateway Webhook explicitly avoiding hardcoded HTTP ports for CI/CD portability
+        import random
+        await asyncio.sleep(random.uniform(0.5, 1.5)) # Artificial routing delay
+        
+        # 70% Drop Rate simulating chaotic internet routing loss
+        if random.random() > 0.70:
+            test_payload = WebhookPayload(
+                event_type="payment.updated", 
+                payment_id=payment_id, 
+                status=gateway_res["status"]
+            )
+            await process_webhook_payload(pool, test_payload)
+            logger.info(f"Webhook Successfully Delivered natively for {payment_id}!")
+        else:
+            logger.warning(f"SIMULATED NETWORK DROP: Webhook permanently lost over the internet for {payment_id}!")
         
     except Exception as e:
         logger.error(f"Background Gateway Simulation mechanically crashed natively: {e}")
