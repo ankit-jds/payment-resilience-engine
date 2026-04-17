@@ -1,17 +1,17 @@
 from pydantic import BaseModel, Field, field_serializer
-from decimal import Decimal
+
 import uuid
 from typing import Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 class OrderCreate(BaseModel):
-    amount: Decimal = Field(..., gt=0, description="Amount must be greater than zero")
+    amount: int = Field(..., gt=0, description="Amount in lowest currency unit (e.g. cents/paise) must be greater than zero")
     idempotency_key: Optional[str] = Field(None, description="Idempotency key for the order")
 
 class OrderResponse(BaseModel):
     order_id: uuid.UUID
-    amount: Decimal
+    amount: int
     status: str
     idempotency_key: str
     created_at: datetime
