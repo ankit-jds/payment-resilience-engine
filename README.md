@@ -54,27 +54,29 @@ Database-level constraints guarantee data integrity even if the Python applicati
 1. **Duplicate requests (Double clicks)**: Blocked cleanly by `INSERT ... ON CONFLICT (idempotency_key)`.
 2. **Concurrent webhook races**: Forcefully queued natively via PostgreSQL row-level locks. 
 3. **Webhook delay (Double charging)**: Order updates strictly use `WHERE status != 'PAID'`. If the query updates 0 rows, the webhook inherently triggers an auto-refund.
-4. **Worker crashes**: Webhook logic explicitly decouples the physical receipt of duplicate payments from the network-bound processing of external refunds. 
+4. **Worker crashes**: Webhook logic explicitly decouples the physical receipt of duplicate payments from the network-bound processing of external refunds via the Daemon worker.
+
+
+### Background Workers (Safety Nets)
+- **Refund Daemon**: A continuous polling worker safely processing Gateway reversals using strictly atomic states avoiding parallel queue overlap natively.
+- **Reconciliation Cron**: A generic truth-checking loop querying the simulated payment provider directly to natively force-fulfill payments blocked by permanently dropped physical webhooks.
 
 ### Testing Strategy
-- A global `pytest` fixture completely intercepts `asyncpg` to run the full application transaction suite completely offline.
-- Explicitly mocks and traps database network lockups, constraint violations, and missing DB payloads.
+- A global `pytest` fixture completely intercepts `asyncpg` to run the full application transaction suite completely offline utilizing `anyio`.
+- Explicitly mocks and traps database network lockups, constraint violations, and massive structural connectivity loss mapping 100% path coverage safely.
 
 ## Remaining Work
 
-As per the technical specification, the core synchronous APIs and State Machines are completely implemented. The following asynchronous background systems remain:
+As per the technical specification, the core engine, state machines, and resilience workers are entirely natively completed.
 
-### 1. Async Refund Worker (Section 10.6)
-A background daemon that continuously polls the `refunds` table for `PENDING_CONFIRMATION` records, safely routes them to the Simulated Payment Provider, and maps the network result (`SUCCESS` or timeout retry).
+### 1. Database Currency Precision (Paise/Cents)
+Currently, financial models use `DECIMAL` mapping. For massive high-frequency environments, ledger schemas must be structurally migrated to `BIGINT` (paise/cents) to entirely mathematically eliminate float approximation vulnerabilities structurally.
 
-### 2. Reconciliation Cron Job (Section 10.7)
-A periodic safety-net service that forces eventual consistency cleanly:
-- Sweeping `payments` stuck indefinitely in `PENDING` due to lost webhooks.
-- Sweeping `refunds` indefinitely stuck in `PENDING_CONFIRMATION`.
-- Triggering exponential backoff retries dynamically.
+### 2. Live Integration Tests
+Expanding the offline `pytest` suite to include dynamic physical Database-Container spin-ups explicitly proving mathematical state convergence under targeted hardware crash scenarios natively.
 
-### 3. Redis Queue Infrastructure (Section 14)
-While the refund loop currently operates via PostgreSQL polling safely, shifting the execution queues into an explicit Redis-backed worker structure is scoped to decouple scaling loads.
+### 3. Redis Queue Infrastructure
+While the background loops currently operate via robust PostgreSQL polling safely, shifting execution into an explicit Redis-backed worker structure (e.g. Celery / ARQ) is definitively scoped to scale massive horizontal throughput natively.
 
-### 4. Live Integration Tests (Section 10.11)
-Expanding the offline `pytest` suite to include literal database-container integrations proving physical state convergence under worker crash circumstances natively.
+### 4. Cryptographic HMAC Implementation
+For physical production deployments, the generic webhook routing engine must integrate an explicit `HMAC-SHA256` middleware layer verifying gateway signature headers explicitly blocking forged JSON payload insertions.
