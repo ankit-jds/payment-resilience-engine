@@ -33,31 +33,41 @@ async def create_order_idempotent(pool: asyncpg.Pool, order_data: OrderCreate) -
     from app.integrations.payment_provider import create_order
     try:
         async with pool.acquire() as conn:
-            CREATE_ORDER_QUERY = """
-                INSERT INTO orders (idempotency_key, request_hash, amount, created_at)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (idempotency_key) 
-                DO UPDATE SET idempotency_key = orders.idempotency_key
-                RETURNING order_id, amount, status, idempotency_key, provider_order_id, created_at, (xmax = 0) AS inserted;
-            """
-            now_ist = get_ist_now()
+            # We strictly enforce a transaction so if the Gateway 504s, we rollback the DB insert entirely!
+            async with conn.transaction():
+                CREATE_ORDER_QUERY = """
+                    INSERT INTO orders (idempotency_key, request_hash, amount, created_at)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (idempotency_key) 
+                    DO UPDATE SET idempotency_key = orders.idempotency_key
+                    RETURNING order_id, amount, status, idempotency_key, provider_order_id, created_at, (xmax = 0) AS inserted;
+                """
+                now_ist = get_ist_now()
 
-            # Pass our IST localized time directly into Postgres as parameter 4
-            db_row = await conn.fetchrow(CREATE_ORDER_QUERY, final_idempotency_key, request_hash, order_data.amount, now_ist)
-            
-            # Unpack dynamically enabling in-memory modification parsing
-            row = dict(db_row) if db_row else None
-            
-            # 3B. External Gateway Registration safely completely decoupled natively
-            if row and row["inserted"]:
-                gateway_res = await create_order(str(row["order_id"]))
+                # Pass our IST localized time directly into Postgres as parameter 4
+                db_row = await conn.fetchrow(CREATE_ORDER_QUERY, final_idempotency_key, request_hash, order_data.amount, now_ist)
                 
-                if gateway_res["status"] == "SUCCESS":
-                    await conn.execute("UPDATE orders SET provider_order_id = $1 WHERE order_id = $2", gateway_res["provider_order_id"], row["order_id"])
-                    row["provider_order_id"] = gateway_res["provider_order_id"]
-                else:
-                    logging.warning(f"Simulated Network 504. External provider_order_id entirely dropped for {row['order_id']}")
+                # Unpack dynamically enabling in-memory modification parsing
+                row = dict(db_row) if db_row else None
+                
+                # 3B. External Gateway Registration seamlessly tethered to DB rollback
+                if row and row["inserted"]:
+                    gateway_res = await create_order(str(row["order_id"]))
+                    
+                    if gateway_res["status"] == "SUCCESS":
+                        await conn.execute("UPDATE orders SET provider_order_id = $1 WHERE order_id = $2", gateway_res["provider_order_id"], row["order_id"])
+                        row["provider_order_id"] = gateway_res["provider_order_id"]
+                    else:
+                        logging.error(f"Gateway 504 Timeout! Rolling back Order {row['order_id']} structurally.")
+                        raise HTTPException(status_code=502, detail="Payment Gateway unavailable. Order creation aborted cleanly.")
+                
+                # 3C. Idempotent Retry Fix
+                # If the order existed but somehow dropped its provider ID historically, we block it securely.
+                if row and not row["inserted"] and not row.get("provider_order_id"):
+                    raise HTTPException(status_code=500, detail="Corrupted Idempotent State. Existing order lacks gateway mapping.")
 
+    except HTTPException:
+        raise
     except asyncpg.exceptions.PostgresError as db_error:
         logging.error(f"Database insertion error: {db_error}")
         raise HTTPException(
